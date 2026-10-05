@@ -2,7 +2,7 @@
 
 A real-time collaborative system design workspace. Describe an architecture in plain English, let an AI agent map it onto a shared canvas, refine it with collaborators, and generate a Markdown technical specification from the resulting graph.
 
-**Live demo:** [miro-clone-two-mauve.vercel.app](https://miro-clone-two-mauve.vercel.app)
+**Live demo:** [archflow-mauve.vercel.app](archflow-mauve.vercel.app)
 
 ![Archflow editor — WhatsApp system design on the collaborative canvas with the AI Architect sidebar](./public/Screenshot.png)
 
