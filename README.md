@@ -4,7 +4,7 @@ A collaborative workspace for designing and explaining software systems. Build a
 
 [Live demo](https://archflow-mauve.vercel.app)
 
-![Archflow editor](./public/Screenshot.png)
+![Archflow editor](./public/Screenshot-2.png)
 
 ## Features
 
