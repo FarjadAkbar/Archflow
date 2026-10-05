@@ -40,6 +40,13 @@ export function useKeyboardShortcuts({
 
       const modifier = event.metaKey || event.ctrlKey
 
+      if (modifier && event.key.toLowerCase() === "a") {
+        event.preventDefault()
+        reactFlow.setNodes(nodes => nodes.map(node => ({ ...node, selected: node.selectable !== false })))
+        reactFlow.setEdges(edges => edges.map(edge => ({ ...edge, selected: edge.selectable !== false })))
+        return
+      }
+
       if (event.key === "Delete" || event.key === "Backspace") {
         const selectedNodes = reactFlow
           .getNodes()

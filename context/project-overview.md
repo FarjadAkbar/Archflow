@@ -53,6 +53,14 @@ Archflow is a real-time collaborative system design workspace. Users describe a 
 - Output is structured as canvas nodes and edges written into the shared room.
 - Generation runs as a durable background task.
 
+### Playable System Stories
+
+- Local play, pause, next/previous step, and replay controls on the canvas.
+- Existing diagrams can be explored in connection order; this is a design walkthrough rather than runtime telemetry.
+- A built-in illustrative traffic-spike case study compares overload/retries with caching and bounded queues/backpressure.
+- Case-study import appends a separate diagram without replacing existing work. Playback highlights edges and node states, with multiple travelers for concurrent requests.
+- Scenario authoring, public embeds, and downloadable animation remain later units.
+
 ### Spec Generation
 
 - The current canvas graph is converted into a Markdown technical specification.

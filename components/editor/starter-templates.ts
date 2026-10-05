@@ -1,4 +1,4 @@
-import { MarkerType, type OnEdgesChange, type OnNodesChange } from "@xyflow/react"
+import { MarkerType, type OnDelete, type OnEdgesChange, type OnNodesChange } from "@xyflow/react"
 import { createCanvasGroup } from "@/lib/canvas-group"
 import {
   CANVAS_EDGE_TYPE,
@@ -51,6 +51,8 @@ function templateGroup(
   })
 }
 
+function maxWidth(width: number): number { return Math.max(184, width) }
+
 function templateNode(
   id: string,
   label: string,
@@ -74,8 +76,8 @@ function templateNode(
   const defaults = kind
     ? { width: kind.width, height: kind.height }
     : SHAPE_DEFAULT_SIZES[shape]
-  const width = options?.width ?? defaults.width
-  const height = options?.height ?? defaults.height
+  const width = kind ? maxWidth(options?.width ?? 192) : options?.width ?? defaults.width
+  const height = kind ? 136 : options?.height ?? defaults.height
 
   return {
     id,
@@ -149,10 +151,11 @@ export function getTemplateBounds(nodes: CanvasFlowNode[]): TemplateBounds {
 
   for (const node of nodes) {
     const { width, height } = getNodeDimensions(node)
-    minX = Math.min(minX, node.position.x)
-    minY = Math.min(minY, node.position.y)
-    maxX = Math.max(maxX, node.position.x + width)
-    maxY = Math.max(maxY, node.position.y + height)
+    const position = getTemplateNodePosition(node, nodes)
+    minX = Math.min(minX, position.x)
+    minY = Math.min(minY, position.y)
+    maxX = Math.max(maxX, position.x + width)
+    maxY = Math.max(maxY, position.y + height)
   }
 
   if (!Number.isFinite(minX)) {
@@ -169,11 +172,27 @@ export function getTemplateBounds(nodes: CanvasFlowNode[]): TemplateBounds {
   }
 }
 
-export function getNodeCenter(node: CanvasFlowNode): { x: number; y: number } {
+export function getTemplateNodePosition(node: CanvasFlowNode, nodes: CanvasFlowNode[]): { x: number; y: number } {
+  const position = { ...node.position }
+  let parentId = node.parentId
+  const visited = new Set([node.id])
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId)
+    const parent = nodes.find((item) => item.id === parentId)
+    if (!parent) break
+    position.x += parent.position.x
+    position.y += parent.position.y
+    parentId = parent.parentId
+  }
+  return position
+}
+
+export function getNodeCenter(node: CanvasFlowNode, nodes: CanvasFlowNode[] = []): { x: number; y: number } {
   const { width, height } = getNodeDimensions(node)
+  const position = getTemplateNodePosition(node, nodes)
   return {
-    x: node.position.x + width / 2,
-    y: node.position.y + height / 2,
+    x: position.x + width / 2,
+    y: position.y + height / 2,
   }
 }
 
@@ -182,286 +201,260 @@ export function applyCanvasTemplate(
   currentNodes: CanvasFlowNode[],
   currentEdges: CanvasEdge[],
   onNodesChange: OnNodesChange<CanvasFlowNode>,
-  onEdgesChange: OnEdgesChange<CanvasEdge>
+  onEdgesChange: OnEdgesChange<CanvasEdge>,
+  onDelete: OnDelete<CanvasFlowNode, CanvasEdge>
 ): void {
-  onEdgesChange([
-    ...currentEdges.map((edge) => ({ type: "remove" as const, id: edge.id })),
-    ...template.edges.map((edge) => ({ type: "add" as const, item: edge })),
-  ])
+  onDelete({ nodes: currentNodes, edges: currentEdges })
+  onNodesChange(template.nodes.map((item) => ({ type: "add", item })))
+  onEdgesChange(template.edges.map((item) => ({ type: "add", item })))
+}
 
-  onNodesChange([
-    ...currentNodes.map((node) => ({ type: "remove" as const, id: node.id })),
-    ...template.nodes.map((node) => ({ type: "add" as const, item: node })),
-  ])
+function annotation(id: string, label: string, style: "heading" | "paragraph", y: number): CanvasNode {
+  return {
+    id, type: CANVAS_NODE_TYPE, position: { x: 12, y }, width: 1500,
+    height: style === "heading" ? 64 : 84,
+    data: { label, textStyle: style, shape: "rectangle", color: NODE_COLORS[0].fill, textColor: NODE_COLORS[0].text },
+  }
+}
+
+interface ReferenceNode { id: string; label: string; kind: ComponentKind; column: number; row: number }
+interface ReferenceEdge { source: string; target: string; label: string; sequence: number }
+
+function referenceTemplate(id: string, name: string, description: string, note: string, items: ReferenceNode[], links: ReferenceEdge[]): CanvasTemplate {
+  const columns = Math.max(...items.map((item) => item.column)) + 1
+  const frameWidth = columns * 310 + 40
+  const rows = [...new Set(items.map((item) => item.row))].sort()
+  const groups = rows.map((row) => templateGroup(`${id}-lane-${row}`, id === "whatsapp" ? ["01 · Clients & entry points", "02 · Application & delivery services", "03 · Data stores & notifications", "04 · Recipient delivery"][row] : ["01 · Request / ingestion path", "02 · Delivery / background work", "03 · Supporting services & storage"][row], 0, 160 + row * 320, frameWidth, 240))
+  const nodes: CanvasFlowNode[] = [
+    annotation(`${id}-title`, name, "heading", 0),
+    annotation(`${id}-description`, note, "paragraph", 64),
+    ...groups,
+    ...items.map((item) => templateNode(item.id, item.label, "rectangle", 30 + item.column * 310, 64, 0, { componentKind: item.kind, parentId: `${id}-lane-${item.row}` })),
+  ]
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const edges = links.map((link, index) => {
+    const from = byId.get(link.source)!
+    const to = byId.get(link.target)!
+    const horizontal = from.row === to.row
+    const forward = horizontal ? to.column > from.column : to.row > from.row
+    return {
+      ...templateEdge(`${id}-e${index + 1}`, link.source, link.target, link.label, link.sequence),
+      sourceHandle: horizontal ? (forward ? "right" : "left") : (forward ? "bottom" : "top"),
+      targetHandle: horizontal ? (forward ? "left" : "right") : (forward ? "top" : "bottom"),
+    }
+  })
+  return { id, name, description, nodes, edges }
+}
+
+interface DataEntity { name: string; fields: string }
+interface DataArchitecture { entities: DataEntity[]; relationships: [number, number, string][] }
+const DATA_ARCHITECTURES: Record<string, DataArchitecture> = {
+  whatsapp: {
+    entities: [
+      { name: "Users / Devices", fields: "SQL · user_id PK, device_id\nphone, public_key, created_at\nIndex: phone; unique device identity" },
+      { name: "Chats", fields: "SQL · chat_id PK\ntype, created_by FK, created_at\nMetadata only; no plaintext history" },
+      { name: "Chat Members", fields: "SQL · (chat_id, user_id) PK / FK\nrole, joined_at\nIndex: user_id → chat memberships" },
+      { name: "Pending Envelopes", fields: "NoSQL · recipient_device partition PK\nmessage_id sort key, chat_id, ciphertext\nDedup key; delivery ACK / TTL cleanup" },
+      { name: "Media Metadata", fields: "SQL · media_id PK, owner_id FK\nobject_key, content_type, size\nEncrypted bytes in S3; keys on clients" },
+    ], relationships: [[0, 2, "User 1:N memberships"], [1, 2, "Chat 1:N members"], [1, 3, "Chat 1:N pending envelopes"], [0, 4, "User 1:N uploads"]],
+  },
+  youtube: {
+    entities: [
+      { name: "Channels", fields: "SQL · channel_id PK, owner_id\nname, created_at\nIndex: owner_id" },
+      { name: "Videos", fields: "SQL · video_id PK, channel_id FK\ntitle, visibility, processing_status\nIndex: channel_id + published_at" },
+      { name: "Media Assets", fields: "SQL · asset_id PK, video_id FK\nobject_key, codec, resolution\nSource / renditions stored in S3" },
+      { name: "Processing Jobs", fields: "SQL · job_id PK, video_id FK\nstatus, attempts, idempotency_key\nWorkers lease jobs; retry safely" },
+      { name: "Engagement", fields: "Partitioned store · video_id\nuser_id, event_id, type, timestamp\nCounters aggregated asynchronously" },
+    ], relationships: [[0, 1, "Channel 1:N videos"], [1, 2, "Video 1:N renditions"], [1, 3, "Video 1:N jobs"], [1, 4, "Video 1:N interactions"]],
+  },
+  microservices: {
+    entities: [
+      { name: "Orders", fields: "Orders SQL · order_id PK\ncustomer_id, status, total\nIndex: customer_id + created_at" },
+      { name: "Order Items", fields: "Orders SQL · (order_id, line_id) PK\nsku, quantity, unit_price\nImmutable price snapshot at checkout" },
+      { name: "Reservations", fields: "Inventory SQL · reservation_id PK\norder_id, sku, quantity, expires_at\nAtomic stock check + reservation" },
+      { name: "Payments", fields: "Payments store · payment_id PK\norder_id, provider_ref, status\nUnique idempotency_key" },
+      { name: "Outbox Events", fields: "Orders SQL · event_id PK\norder_id, payload, published_at\nWritten in the order transaction" },
+    ], relationships: [[0, 1, "Order 1:N lines"], [0, 2, "Order 1:N reservations"], [0, 3, "Order 1:N payment attempts"], [0, 4, "Order 1:N events"]],
+  },
+  "ci-cd-pipeline": {
+    entities: [
+      { name: "Build Runs", fields: "CI SQL · run_id PK, commit_sha\nstatus, started_at, finished_at\nLogs kept in object storage" },
+      { name: "Artifacts", fields: "Registry · digest PK, run_id\nobject_key, signature, sbom_key\nImmutable bytes addressed by digest" },
+      { name: "Releases", fields: "Release SQL · release_id PK\nartifact_digest FK, approval\nApproval binds to exact digest" },
+      { name: "Deployments", fields: "Release SQL · deployment_id PK\nrelease_id FK, environment, status\nPrevious release retained for rollback" },
+    ], relationships: [[0, 1, "Build 1:N artifacts"], [1, 2, "Artifact 1:N releases"], [2, 3, "Release 1:N deployments"]],
+  },
+  "event-driven": {
+    entities: [
+      { name: "Order Events", fields: "Broker log · event_id, order_id\ntype, version, payload, timestamp\nPartition by order_id for ordering" },
+      { name: "Consumer Inbox", fields: "Consumer SQL · (consumer, event_id) PK\nprocessed_at, result\nDedup + side effect in one transaction" },
+      { name: "Shipments", fields: "Fulfillment SQL · shipment_id PK\norder_id, status, tracking_ref\nUnique fulfillment idempotency key" },
+      { name: "Failed Deliveries", fields: "DLQ · event_id, consumer\nattempts, reason, failed_at\nRetain original payload for replay" },
+    ], relationships: [[0, 1, "Event 1:N consumer receipts"], [1, 2, "Receipt → shipment write"], [0, 3, "Event 0:N failed deliveries"]],
+  },
+}
+
+function withDataArchitecture(template: CanvasTemplate): CanvasTemplate {
+  const model = DATA_ARCHITECTURES[template.id]
+  if (!model) return template
+  const y = getTemplateBounds(template.nodes).maxY + 100
+  const groupId = `${template.id}-data-model`
+  const group = templateGroup(groupId, "Logical data model · keys, ownership & relationships", 0, y, model.entities.length * 310 + 40, 368)
+  const entities = model.entities.map((entity, index) => templateNode(`${groupId}-${index}`, entity.name, "cylinder", 30 + index * 310, 64, 0, { componentKind: "database", parentId: groupId, width: 224 }))
+  const notes = model.entities.map((entity, index): CanvasNode => ({
+    ...annotation(`${groupId}-fields-${index}`, entity.fields, "paragraph", 214),
+    parentId: groupId, extent: "parent", position: { x: 30 + index * 310, y: 214 }, width: 280, height: 120,
+  }))
+  const relationships = model.relationships.map(([source, target, label], index): CanvasEdge => ({
+    ...templateEdge(`${groupId}-relation-${index}`, entities[source].id, entities[target].id, label),
+    sourceHandle: "right", targetHandle: "left", data: { label, relationship: true }, style: { strokeDasharray: "5 4" },
+  }))
+  return { ...template, nodes: [...template.nodes, group, ...entities, ...notes], edges: [...template.edges, ...relationships] }
 }
 
 export const CANVAS_TEMPLATES: CanvasTemplate[] = [
-  {
-    id: "whatsapp",
-    name: "WhatsApp",
-    description:
-      "Scalable chat: clients, edge, chat + presence services, Kafka fan-out, Cassandra/media stores.",
-    nodes: [
-      templateGroup("wa-clients", "Clients", 40, 40, 280, 420),
-      templateGroup("wa-edge", "Edge", 380, 40, 300, 420),
-      templateGroup("wa-app", "Application", 740, 40, 720, 420),
-      templateGroup("wa-data", "Data & Messaging", 1520, 40, 620, 520),
-      templateNode("wa-mobile", "Mobile App", "rectangle", 50, 60, 1, {
-        componentKind: "client",
-        parentId: "wa-clients",
-      }),
-      templateNode("wa-web", "Web Client", "rectangle", 50, 200, 1, {
-        componentKind: "client",
-        parentId: "wa-clients",
-      }),
-      templateNode("wa-cdn", "CDN", "hexagon", 50, 60, 7, {
-        componentKind: "cdn",
-        parentId: "wa-edge",
-      }),
-      templateNode("wa-lb", "Load Balancer", "hexagon", 50, 220, 2, {
-        componentKind: "load-balancer",
-        parentId: "wa-edge",
-      }),
-      templateNode("wa-gateway", "API Gateway", "hexagon", 40, 40, 2, {
-        componentKind: "api-gateway",
-        parentId: "wa-app",
-      }),
-      templateNode("wa-chat", "Chat Service", "rectangle", 260, 40, 3, {
-        componentKind: "server",
-        parentId: "wa-app",
-      }),
-      templateNode("wa-presence", "Presence", "rectangle", 260, 180, 5, {
-        componentKind: "server",
-        parentId: "wa-app",
-      }),
-      templateNode("wa-media", "Media Service", "rectangle", 480, 40, 3, {
-        componentKind: "server",
-        parentId: "wa-app",
-      }),
-      templateNode("wa-push", "Push Worker", "rectangle", 480, 180, 4, {
-        componentKind: "worker",
-        parentId: "wa-app",
-      }),
-      templateNode("wa-kafka", "Kafka", "pill", 40, 40, 2, {
-        componentKind: "message-broker",
-        parentId: "wa-data",
-        width: 168,
-      }),
-      templateNode("wa-cassandra", "Cassandra", "cylinder", 260, 40, 6, {
-        componentKind: "database",
-        parentId: "wa-data",
-      }),
-      templateNode("wa-redis", "Redis", "cylinder", 260, 220, 7, {
-        componentKind: "cache",
-        parentId: "wa-data",
-      }),
-      templateNode("wa-blob", "Media Blob", "rectangle", 420, 40, 1, {
-        componentKind: "blob-storage",
-        parentId: "wa-data",
-      }),
-    ],
-    edges: [
-      templateEdge("wa-e1", "wa-mobile", "wa-cdn", "assets", 1),
-      templateEdge("wa-e2", "wa-mobile", "wa-lb", "ws/https", 1),
-      templateEdge("wa-e3", "wa-web", "wa-lb", "https", 1),
-      templateEdge("wa-e4", "wa-lb", "wa-gateway", "route", 2),
-      templateEdge("wa-e5", "wa-gateway", "wa-chat", "send/recv", 3),
-      templateEdge("wa-e6", "wa-gateway", "wa-presence", "online", 3),
-      templateEdge("wa-e7", "wa-gateway", "wa-media", "upload", 3),
-      templateEdge("wa-e8", "wa-chat", "wa-kafka", "events", 4),
-      templateEdge("wa-e9", "wa-presence", "wa-redis", "session", 4),
-      templateEdge("wa-e10", "wa-media", "wa-blob", "store", 4),
-      templateEdge("wa-e11", "wa-kafka", "wa-push", "fan-out", 5),
-      templateEdge("wa-e12", "wa-chat", "wa-cassandra", "persist", 5),
-    ],
-  },
-  {
-    id: "youtube",
-    name: "YouTube",
-    description:
-      "Video platform: upload pipeline, CDN playback, recommendations, and watch analytics.",
-    nodes: [
-      templateGroup("yt-clients", "Clients", 40, 40, 260, 360),
-      templateGroup("yt-edge", "Edge & Ingest", 360, 40, 340, 520),
-      templateGroup("yt-app", "Application", 760, 40, 700, 520),
-      templateGroup("yt-data", "Data Plane", 1520, 40, 700, 560),
-      templateNode("yt-viewer", "Viewer", "circle", 60, 50, 1, {
-        componentKind: "user",
-        parentId: "yt-clients",
-      }),
-      templateNode("yt-creator", "Creator Studio", "rectangle", 40, 200, 1, {
-        componentKind: "client",
-        parentId: "yt-clients",
-      }),
-      templateNode("yt-cdn", "Global CDN", "hexagon", 60, 40, 7, {
-        componentKind: "cdn",
-        parentId: "yt-edge",
-      }),
-      templateNode("yt-waf", "WAF", "hexagon", 60, 200, 4, {
-        componentKind: "firewall",
-        parentId: "yt-edge",
-      }),
-      templateNode("yt-upload", "Upload API", "hexagon", 60, 360, 2, {
-        componentKind: "api-gateway",
-        parentId: "yt-edge",
-      }),
-      templateNode("yt-watch", "Watch API", "rectangle", 40, 40, 3, {
-        componentKind: "server",
-        parentId: "yt-app",
-      }),
-      templateNode("yt-transcode", "Transcode Workers", "rectangle", 280, 40, 4, {
-        componentKind: "worker",
-        parentId: "yt-app",
-        width: 180,
-      }),
-      templateNode("yt-reco", "Recommendations", "rectangle", 40, 220, 5, {
-        componentKind: "server",
-        parentId: "yt-app",
-        width: 180,
-      }),
-      templateNode("yt-search", "Search", "rectangle", 280, 220, 3, {
-        componentKind: "server",
-        parentId: "yt-app",
-      }),
-      templateNode("yt-analytics", "Analytics", "rectangle", 480, 120, 6, {
-        componentKind: "worker",
-        parentId: "yt-app",
-      }),
-      templateNode("yt-queue", "Upload Queue", "pill", 40, 40, 5, {
-        componentKind: "queue",
-        parentId: "yt-data",
-        width: 168,
-      }),
-      templateNode("yt-object", "Video Object Store", "rectangle", 260, 40, 1, {
-        componentKind: "blob-storage",
-        parentId: "yt-data",
-        width: 180,
-      }),
-      templateNode("yt-meta", "Metadata DB", "cylinder", 40, 220, 6, {
-        componentKind: "database",
-        parentId: "yt-data",
-      }),
-      templateNode("yt-cache", "Watch Cache", "cylinder", 260, 220, 7, {
-        componentKind: "cache",
-        parentId: "yt-data",
-      }),
-      templateNode("yt-warehouse", "Analytics Store", "cylinder", 480, 220, 1, {
-        componentKind: "database",
-        parentId: "yt-data",
-      }),
-    ],
-    edges: [
-      templateEdge("yt-e1", "yt-viewer", "yt-cdn", "playback", 1),
-      templateEdge("yt-e2", "yt-viewer", "yt-waf", "api", 1),
-      templateEdge("yt-e3", "yt-creator", "yt-upload", "upload", 1),
-      templateEdge("yt-e4", "yt-waf", "yt-watch", "route", 2),
-      templateEdge("yt-e5", "yt-upload", "yt-queue", "enqueue", 2),
-      templateEdge("yt-e6", "yt-queue", "yt-transcode", "job", 3),
-      templateEdge("yt-e7", "yt-transcode", "yt-object", "renditions", 4),
-      templateEdge("yt-e8", "yt-watch", "yt-cache", "hot path", 3),
-      templateEdge("yt-e9", "yt-watch", "yt-reco", "home", 3),
-      templateEdge("yt-e10", "yt-watch", "yt-search", "query", 3),
-      templateEdge("yt-e11", "yt-cdn", "yt-object", "origin", 4),
-      templateEdge("yt-e12", "yt-reco", "yt-meta", "features", 4),
-      templateEdge("yt-e13", "yt-watch", "yt-analytics", "events", 4),
-      templateEdge("yt-e14", "yt-analytics", "yt-warehouse", "batch", 5),
-    ],
-  },
-  {
-    id: "microservices",
-    name: "Microservices",
-    description:
-      "API gateway routing traffic to focused services backed by databases and a message queue.",
-    nodes: [
-      templateNode("ms-gateway", "API Gateway", "hexagon", 360, 24, 1, {
-        componentKind: "api-gateway",
-      }),
-      templateNode("ms-auth", "Auth Service", "rectangle", 80, 200, 2, {
-        componentKind: "server",
-      }),
-      templateNode("ms-users", "User Service", "rectangle", 320, 200, 1, {
-        componentKind: "server",
-      }),
-      templateNode("ms-orders", "Order Service", "rectangle", 560, 200, 3, {
-        componentKind: "server",
-      }),
-      templateNode("ms-notify", "Notifications", "rectangle", 800, 200, 5, {
-        componentKind: "worker",
-      }),
-      templateNode("ms-postgres", "PostgreSQL", "cylinder", 200, 400, 6, {
-        componentKind: "database",
-      }),
-      templateNode("ms-redis", "Redis Cache", "cylinder", 480, 400, 7, {
-        componentKind: "cache",
-      }),
-      templateNode("ms-queue", "Message Queue", "pill", 720, 412, 2, {
-        componentKind: "queue",
-        width: 168,
-      }),
-    ],
-    edges: [
-      templateEdge("ms-e1", "ms-gateway", "ms-auth", "", 1),
-      templateEdge("ms-e2", "ms-gateway", "ms-users", "", 1),
-      templateEdge("ms-e3", "ms-gateway", "ms-orders", "", 1),
-      templateEdge("ms-e4", "ms-gateway", "ms-notify", "", 1),
-      templateEdge("ms-e5", "ms-auth", "ms-postgres", "", 2),
-      templateEdge("ms-e6", "ms-users", "ms-postgres", "", 2),
-      templateEdge("ms-e7", "ms-orders", "ms-redis", "", 2),
-      templateEdge("ms-e8", "ms-orders", "ms-queue", "", 2),
-      templateEdge("ms-e9", "ms-notify", "ms-queue", "", 2),
-    ],
-  },
-  {
-    id: "ci-cd-pipeline",
-    name: "CI/CD Pipeline",
-    description:
-      "Linear delivery flow from source control through build, test, and staged production deploys.",
-    nodes: [
-      templateNode("ci-source", "Source Code", "rectangle", 40, 120, 0),
-      templateNode("ci-build", "Build", "rectangle", 280, 120, 1),
-      templateNode("ci-test", "Test Suite", "rectangle", 520, 120, 6),
-      templateNode("ci-staging", "Deploy Staging", "rectangle", 760, 120, 3),
-      templateNode("ci-prod", "Deploy Production", "rectangle", 1000, 120, 4),
-    ],
-    edges: [
-      templateEdge("ci-e1", "ci-source", "ci-build", "push", 1),
-      templateEdge("ci-e2", "ci-build", "ci-test", "artifact", 2),
-      templateEdge("ci-e3", "ci-test", "ci-staging", "promote", 3),
-      templateEdge("ci-e4", "ci-staging", "ci-prod", "release", 4),
-    ],
-  },
-  {
-    id: "event-driven",
-    name: "Event-Driven System",
-    description:
-      "Producers publish events to a central bus consumed by multiple services with a dead-letter path.",
-    nodes: [
-      templateNode("ev-producer", "Producer", "rectangle", 80, 160, 1, {
-        componentKind: "server",
-      }),
-      templateNode("ev-bus", "Event Bus", "hexagon", 360, 140, 2, {
-        componentKind: "message-broker",
-      }),
-      templateNode("ev-consumer-a", "Consumer A", "rectangle", 660, 40, 6, {
-        componentKind: "worker",
-      }),
-      templateNode("ev-consumer-b", "Consumer B", "rectangle", 660, 200, 3, {
-        componentKind: "worker",
-      }),
-      templateNode("ev-consumer-c", "Consumer C", "rectangle", 660, 360, 5, {
-        componentKind: "worker",
-      }),
-      templateNode("ev-dlq", "Dead Letter Queue", "pill", 360, 380, 4, {
-        componentKind: "queue",
-        width: 176,
-      }),
-    ],
-    edges: [
-      templateEdge("ev-e1", "ev-producer", "ev-bus", "publish", 1),
-      templateEdge("ev-e2", "ev-bus", "ev-consumer-a", "", 2),
-      templateEdge("ev-e3", "ev-bus", "ev-consumer-b", "", 2),
-      templateEdge("ev-e4", "ev-bus", "ev-consumer-c", "", 2),
-      templateEdge("ev-e5", "ev-bus", "ev-dlq", "failed", 3),
-    ],
-  },
-]
+  // High-level educational design; encryption constraints: engineering.fb.com/2021/07/14/security/whatsapp-multi-device/
+  referenceTemplate("whatsapp", "WhatsApp · High-level design", "Chat, presence, media, offline delivery, and a connected logical data model.",
+    "Illustrative messaging architecture. Clients encrypt/decrypt; servers route ciphertext. Pending envelopes expire after delivery or TTL; durable history stays on devices. SQL owns accounts and chat membership; partitioned storage owns pending delivery. Redis presence is ephemeral. Calls are outside this view.", [
+    { id: "wa-sender", label: "Mobile / Web", kind: "client", column: 0, row: 0 },
+    { id: "wa-lb", label: "Load Balancer", kind: "load-balancer", column: 1, row: 0 },
+    { id: "wa-gateway", label: "API / WSS Gateway", kind: "api-gateway", column: 2, row: 0 },
+    { id: "wa-auth", label: "Auth + Device Keys", kind: "server", column: 3, row: 0 },
+    { id: "wa-router", label: "Chat Service", kind: "server", column: 2, row: 1 },
+    { id: "wa-presence", label: "Presence Service", kind: "server", column: 0, row: 1 },
+    { id: "wa-media", label: "Media Service", kind: "server", column: 1, row: 1 },
+    { id: "wa-events", label: "Delivery Broker", kind: "message-broker", column: 3, row: 1 },
+    { id: "wa-delivery", label: "Delivery Worker", kind: "worker", column: 4, row: 1 },
+    { id: "wa-cache", label: "Redis · Sessions", kind: "cache", column: 0, row: 2 },
+    { id: "wa-objects", label: "Encrypted Media · S3", kind: "s3", column: 1, row: 2 },
+    { id: "wa-store", label: "Pending Envelopes", kind: "database", column: 2, row: 2 },
+    { id: "wa-users", label: "Accounts / Chats SQL", kind: "database", column: 3, row: 2 },
+    { id: "wa-push", label: "Notification Service", kind: "worker", column: 4, row: 2 },
+    { id: "wa-cdn", label: "Media CDN", kind: "cdn", column: 1, row: 3 },
+    { id: "wa-recipient", label: "Recipient Devices", kind: "client", column: 2, row: 3 },
+    { id: "wa-provider", label: "APNs / FCM", kind: "saas", column: 4, row: 3 },
+  ], [
+    { source: "wa-sender", target: "wa-lb", label: "HTTPS / persistent WSS", sequence: 1 },
+    { source: "wa-lb", target: "wa-gateway", label: "Distribute connections", sequence: 2 },
+    { source: "wa-gateway", target: "wa-auth", label: "Validate session / public keys", sequence: 3 },
+    { source: "wa-auth", target: "wa-users", label: "Accounts + device identities", sequence: 3 },
+    { source: "wa-gateway", target: "wa-router", label: "Send encrypted envelope", sequence: 4 },
+    { source: "wa-gateway", target: "wa-presence", label: "Heartbeat / session updates", sequence: 4 },
+    { source: "wa-presence", target: "wa-cache", label: "Device → session · TTL", sequence: 4 },
+    { source: "wa-gateway", target: "wa-media", label: "Authorize media upload", sequence: 4 },
+    { source: "wa-media", target: "wa-objects", label: "Store encrypted object", sequence: 5 },
+    { source: "wa-router", target: "wa-users", label: "Chat membership lookup", sequence: 5 },
+    { source: "wa-router", target: "wa-store", label: "Persist pending · recipient shard", sequence: 5 },
+    { source: "wa-router", target: "wa-events", label: "Publish delivery after persist", sequence: 6 },
+    { source: "wa-events", target: "wa-delivery", label: "Consume + deduplicate", sequence: 7 },
+    { source: "wa-delivery", target: "wa-cache", label: "Find online device session", sequence: 8 },
+    { source: "wa-delivery", target: "wa-gateway", label: "Online: route to connection", sequence: 9 },
+    { source: "wa-gateway", target: "wa-recipient", label: "Encrypted delivery / receipts", sequence: 10 },
+    { source: "wa-delivery", target: "wa-store", label: "Delivery ACK → delete / expire", sequence: 11 },
+    { source: "wa-delivery", target: "wa-push", label: "Offline: wake-up notification", sequence: 9 },
+    { source: "wa-push", target: "wa-provider", label: "Push · no plaintext message", sequence: 10 },
+    { source: "wa-provider", target: "wa-recipient", label: "Wake device; reconnect to fetch", sequence: 11 },
+    { source: "wa-objects", target: "wa-cdn", label: "Media origin", sequence: 6 },
+    { source: "wa-cdn", target: "wa-recipient", label: "Download ciphertext; decrypt locally", sequence: 10 },
+  ]),
+  // Video processing reference: https://docs.aws.amazon.com/solutions/latest/video-on-demand-on-aws/architecture-details.html
+  referenceTemplate("youtube", "YouTube-style video platform", "Source upload, queued transcoding, published renditions, and CDN playback.",
+    "Reference video-on-demand design, not YouTube's private infrastructure. Upload source media, enqueue an idempotent processing job, publish multiple renditions, and serve playback through the CDN. Real deployments can use signed direct uploads and workflow orchestration.", [
+    { id: "yt-creator", label: "Creator", kind: "client", column: 0, row: 0 },
+    { id: "yt-upload", label: "Upload API", kind: "api-gateway", column: 1, row: 0 },
+    { id: "yt-source", label: "Source Media · S3", kind: "s3", column: 2, row: 0 },
+    { id: "yt-jobs", label: "Transcode Jobs", kind: "queue", column: 3, row: 0 },
+    { id: "yt-worker", label: "Transcode Workers", kind: "worker", column: 4, row: 0 },
+    { id: "yt-catalog", label: "Catalog / Playback API", kind: "server", column: 2, row: 2 },
+    { id: "yt-cache", label: "Metadata Cache", kind: "cache", column: 3, row: 2 },
+    { id: "yt-search", label: "Search Index", kind: "database", column: 4, row: 2 },
+    { id: "yt-meta", label: "Video Metadata", kind: "database", column: 1, row: 1 },
+    { id: "yt-viewer", label: "Viewer", kind: "client", column: 2, row: 1 },
+    { id: "yt-cdn", label: "Playback CDN", kind: "cdn", column: 3, row: 1 },
+    { id: "yt-renditions", label: "Renditions · S3", kind: "s3", column: 4, row: 1 },
+  ], [
+    { source: "yt-viewer", target: "yt-catalog", label: "Browse / request playback", sequence: 7 },
+    { source: "yt-catalog", target: "yt-meta", label: "Authorize + fetch video metadata", sequence: 8 },
+    { source: "yt-catalog", target: "yt-cache", label: "Cache popular metadata", sequence: 8 },
+    { source: "yt-catalog", target: "yt-search", label: "Search titles + tags", sequence: 8 },
+    { source: "yt-worker", target: "yt-search", label: "Index published video", sequence: 6 },
+    { source: "yt-creator", target: "yt-upload", label: "Upload video", sequence: 1 },
+    { source: "yt-upload", target: "yt-source", label: "Store source object", sequence: 2 },
+    { source: "yt-source", target: "yt-jobs", label: "Object-created event", sequence: 3 },
+    { source: "yt-jobs", target: "yt-worker", label: "Consume processing job", sequence: 4 },
+    { source: "yt-worker", target: "yt-renditions", label: "Write HLS / DASH renditions", sequence: 5 },
+    { source: "yt-worker", target: "yt-meta", label: "Publish ready metadata", sequence: 6 },
+    { source: "yt-renditions", target: "yt-cdn", label: "Origin response on cache miss", sequence: 7 },
+    { source: "yt-cdn", target: "yt-viewer", label: "Stream cached segments", sequence: 8 },
+  ]),
+  referenceTemplate("microservices", "E-commerce order processing", "Inventory reservation, idempotent payments, and transactional outbox delivery.",
+    "The Order API coordinates inventory reservation and payment before committing the order. An outbox relay publishes committed events to a broker; notification workers consume them asynchronously. Failed reservations or charges require compensation and idempotency.", [
+    { id: "ms-client", label: "Checkout Client", kind: "client", column: 0, row: 0 },
+    { id: "ms-gateway", label: "API Gateway", kind: "api-gateway", column: 1, row: 0 },
+    { id: "ms-orders", label: "Order API", kind: "server", column: 2, row: 0 },
+    { id: "ms-db", label: "Orders + Outbox", kind: "database", column: 3, row: 0 },
+    { id: "ms-relay", label: "Outbox Relay", kind: "worker", column: 4, row: 0 },
+    { id: "ms-catalog", label: "Catalog Service", kind: "server", column: 1, row: 2 },
+    { id: "ms-products", label: "Products SQL", kind: "database", column: 2, row: 2 },
+    { id: "ms-cache", label: "Catalog Cache", kind: "cache", column: 3, row: 2 },
+    { id: "ms-email", label: "Notification Worker", kind: "worker", column: 0, row: 1 },
+    { id: "ms-events", label: "Order Events", kind: "message-broker", column: 1, row: 1 },
+    { id: "ms-inventory", label: "Inventory Service", kind: "server", column: 2, row: 1 },
+    { id: "ms-stock", label: "Inventory DB", kind: "database", column: 3, row: 1 },
+    { id: "ms-payment", label: "Payment Provider", kind: "saas", column: 4, row: 1 },
+  ], [
+    { source: "ms-gateway", target: "ms-catalog", label: "Browse products", sequence: 2 },
+    { source: "ms-catalog", target: "ms-products", label: "Product + price lookup", sequence: 3 },
+    { source: "ms-catalog", target: "ms-cache", label: "Cached product reads", sequence: 3 },
+    { source: "ms-client", target: "ms-gateway", label: "POST /orders", sequence: 1 },
+    { source: "ms-gateway", target: "ms-orders", label: "Authenticated request", sequence: 2 },
+    { source: "ms-orders", target: "ms-inventory", label: "Reserve inventory", sequence: 3 },
+    { source: "ms-inventory", target: "ms-stock", label: "Atomic reservation", sequence: 3 },
+    { source: "ms-orders", target: "ms-payment", label: "Charge · idempotency key", sequence: 4 },
+    { source: "ms-orders", target: "ms-db", label: "Commit order + outbox", sequence: 5 },
+    { source: "ms-db", target: "ms-relay", label: "Read committed outbox", sequence: 6 },
+    { source: "ms-relay", target: "ms-events", label: "Publish order-created", sequence: 7 },
+    { source: "ms-events", target: "ms-email", label: "Consume + deduplicate", sequence: 8 },
+  ]),
+  referenceTemplate("ci-cd-pipeline", "CI/CD release pipeline", "Build once, test, publish an artifact, validate staging, and approve production.",
+    "Promote the same immutable artifact through staging and production. Staging checks and an approval gate precede the release. Roll back to a previous artifact if health checks fail.", [
+    { id: "ci-control", label: "Pipeline Orchestrator", kind: "server", column: 1, row: 2 },
+    { id: "ci-runs", label: "Runs / Releases SQL", kind: "database", column: 2, row: 2 },
+    { id: "ci-source", label: "Git Repository", kind: "saas", column: 0, row: 0 },
+    { id: "ci-build", label: "Build + Test", kind: "worker", column: 1, row: 0 },
+    { id: "ci-artifact", label: "Artifact Registry", kind: "blob-storage", column: 2, row: 0 },
+    { id: "ci-staging", label: "Staging Deploy", kind: "server", column: 3, row: 0 },
+    { id: "ci-gate", label: "Validate + Approve", kind: "worker", column: 3, row: 1 },
+    { id: "ci-prod", label: "Production Deploy", kind: "server", column: 4, row: 1 },
+  ], [
+    { source: "ci-source", target: "ci-control", label: "Signed webhook / commit", sequence: 1 },
+    { source: "ci-control", target: "ci-build", label: "Schedule isolated build", sequence: 2 },
+    { source: "ci-control", target: "ci-runs", label: "Persist workflow state", sequence: 2 },
+    { source: "ci-gate", target: "ci-runs", label: "Record approved release digest", sequence: 4 },
+    { source: "ci-build", target: "ci-artifact", label: "Tests pass · publish digest", sequence: 2 },
+    { source: "ci-artifact", target: "ci-staging", label: "Deploy pinned artifact", sequence: 3 },
+    { source: "ci-staging", target: "ci-gate", label: "Smoke + integration checks", sequence: 4 },
+    { source: "ci-gate", target: "ci-prod", label: "Promote approved digest", sequence: 5 },
+  ]),
+  referenceTemplate("event-driven", "Event-driven fulfillment", "Independent subscribers, idempotent processing, and dead-letter handling.",
+    "An event broker routes order-created events to independent fulfillment and email subscriptions. Consumers retry transient failures and send poison messages to a dead-letter queue after their retry budget is exhausted. Writes and external calls must be idempotent.", [
+    { id: "ev-outbox", label: "Orders + Outbox SQL", kind: "database", column: 0, row: 1 },
+    { id: "ev-relay", label: "Outbox Relay", kind: "worker", column: 1, row: 1 },
+    { id: "ev-producer", label: "Order Producer", kind: "server", column: 0, row: 0 },
+    { id: "ev-broker", label: "Order Event Broker", kind: "message-broker", column: 1, row: 0 },
+    { id: "ev-worker", label: "Fulfillment Worker", kind: "worker", column: 2, row: 0 },
+    { id: "ev-db", label: "Shipment Records", kind: "database", column: 3, row: 0 },
+    { id: "ev-email", label: "Email Worker", kind: "worker", column: 2, row: 1 },
+    { id: "ev-provider", label: "Email Provider", kind: "saas", column: 3, row: 1 },
+    { id: "ev-dlq", label: "Dead-Letter Queue", kind: "queue", column: 4, row: 1 },
+  ], [
+    { source: "ev-producer", target: "ev-outbox", label: "Commit order + event atomically", sequence: 1 },
+    { source: "ev-outbox", target: "ev-relay", label: "Read committed outbox", sequence: 2 },
+    { source: "ev-relay", target: "ev-broker", label: "Publish order-created", sequence: 3 },
+    { source: "ev-broker", target: "ev-worker", label: "Fulfillment subscription", sequence: 4 },
+    { source: "ev-broker", target: "ev-email", label: "Email subscription", sequence: 4 },
+    { source: "ev-worker", target: "ev-db", label: "Idempotent shipment write", sequence: 5 },
+    { source: "ev-email", target: "ev-provider", label: "Send confirmation", sequence: 5 },
+    { source: "ev-worker", target: "ev-dlq", label: "Retry budget exhausted", sequence: 6 },
+  ]),
+].map(withDataArchitecture)

@@ -3,7 +3,7 @@
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getSmoothStepPath,
+  getBezierPath,
   type EdgeProps,
 } from "@xyflow/react"
 import { useCallback, useState } from "react"
@@ -11,6 +11,9 @@ import { useCanvasFlow } from "@/components/editor/canvas-flow-context"
 import { CanvasEdgeLabelEditor } from "@/components/editor/canvas-edge-label-editor"
 import { useApplyEdgeEnterClassName } from "@/hooks/use-apply-enter"
 import { useFlowPlay } from "@/hooks/use-flow-play"
+import { useStoryPlayback } from "@/hooks/use-story-playback"
+import { StoryTravelers } from "@/components/editor/story-travelers"
+import { STORY_TONE_COLOR } from "@/lib/story-playback"
 import {
   EDGE_COLOR_REST,
   EDGE_INTERACTION_WIDTH,
@@ -35,26 +38,29 @@ export function CanvasEdge({
 }: EdgeProps<CanvasEdge>) {
   const { updateEdgeLabel } = useCanvasFlow()
   const { isFlowPlaying, activeHop, sequenceByEdgeId } = useFlowPlay()
+  const story = useStoryPlayback()
   const [hovered, setHovered] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [draftLabel, setDraftLabel] = useState("")
   const applyEnterClass = useApplyEdgeEnterClassName()
 
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
-    borderRadius: 8,
   })
 
   const label = data?.label ?? ""
   const isActive = selected || hovered || isEditing
-  const sequence = sequenceByEdgeId.get(id) ?? data?.sequence
-  const hopActive = isEdgeActiveForHop(sequence, activeHop)
-  const strokeColor = hopActive
+  const sequence = data?.relationship ? undefined : sequenceByEdgeId.get(id) ?? data?.sequence
+  const storyActive = Boolean(story?.step?.edgeIds.includes(id))
+  const hopActive = !story?.open && isEdgeActiveForHop(sequence, activeHop)
+  const strokeColor = storyActive && story?.step
+    ? STORY_TONE_COLOR[story.step.tone]
+    : hopActive
     ? "var(--color-accent-ai)"
     : isActive
       ? DEFAULT_EDGE_COLOR
@@ -84,12 +90,14 @@ export function CanvasEdge({
           markerEnd={markerEnd}
           style={{
             stroke: strokeColor,
-            strokeWidth: hopActive ? 2.25 : 1.5,
+            strokeWidth: hopActive || storyActive ? 2.25 : 1.5,
+            strokeDasharray: data?.relationship ? "5 4" : undefined,
             strokeLinecap: "round",
             strokeLinejoin: "round",
             transition: "stroke 120ms ease, stroke-width 120ms ease",
           }}
         />
+        <StoryTravelers edgeId={id} path={edgePath} />
         {hopActive ? (
           <circle r={4} className="pointer-events-none fill-accent-ai">
             <animateMotion
@@ -116,7 +124,7 @@ export function CanvasEdge({
           }}
         >
           <div className="flex flex-col items-center gap-1">
-            {isFlowPlaying && sequence ? (
+            {!story?.open && isFlowPlaying && sequence ? (
               <span
                 className={
                   hopActive

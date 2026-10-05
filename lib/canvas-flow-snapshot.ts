@@ -53,6 +53,7 @@ export function formatCanvasFlowSnapshot(snapshot: CanvasFlowSnapshot): string {
             const kind = node.data.componentKind
               ? ` kind=${node.data.componentKind}`
               : ""
+            const annotation = node.data.textStyle ? ` annotation=${node.data.textStyle}` : ""
             const parent = node.parentId ? ` parent=${node.parentId}` : ""
             const parentGroup = node.parentId
               ? groups.find((group) => group.id === node.parentId)
@@ -63,7 +64,7 @@ export function formatCanvasFlowSnapshot(snapshot: CanvasFlowSnapshot): string {
             const absY = parentGroup
               ? parentGroup.position.y + node.position.y
               : node.position.y
-            return `- id="${node.id}" label="${node.data.label}" shape=${node.data.shape}${kind}${parent} at (${absX}, ${absY}) size=${width}x${height}`
+            return `- id="${node.id}" label="${node.data.label}" shape=${node.data.shape}${kind}${annotation}${parent} at (${absX}, ${absY}) size=${width}x${height}`
           })
           .join("\n")
 

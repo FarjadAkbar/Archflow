@@ -40,7 +40,9 @@
 
 ## Starter System Designs
 
-- Prebuilt templates are static canvas snapshots stored in the codebase.
+Text annotations use the existing `canvasNode` storage contract with an optional `textStyle` (`heading` or `paragraph`). They are not architecture components and have no handles. They sync/autosave/undo through existing node mutations; spec generation excludes annotation nodes, and Design snapshots identify them as annotations to preserve. Starter templates include explanatory annotations, roomier component cards, explicit connection handles, and realistic labeled request/async/data paths. WhatsApp-style and YouTube-style examples are reference designs rather than claims about proprietary infrastructure.
+
+- Prebuilt templates are static canvas snapshots stored in the codebase. Each includes a high-level system view and a separate logical data model with entity keys, relationships, and storage guidance. Database-model edges carry optional relationship=true metadata, describe data ownership rather than execution steps, and are excluded from story/presentation travelers. WhatsApp includes ingress, chat/auth/presence/media services, async delivery, and persistent/ephemeral storage; client-side E2EE and pending ciphertext retention are explicit.
 - Templates are loaded into the active Liveblocks room when a user imports one.
 - Import can occur on canvas creation or from within the editor at any time.
 - Template data follows the same node/edge schema as user-created canvas content.
@@ -59,6 +61,10 @@
 - Input: current canvas graph and project context.
 - Execution: durable background task via Trigger.dev.
 - Output: Markdown technical spec saved to the filesystem and linked to the project in the database.
+
+## Scenario Playback
+
+Scenario definitions and playback state live in client memory. A pure timeline reducer governs play/pause/step/replay, while browser CSS animates travelers without shared-storage writes per frame. Loading the built-in case study adds ordinary nodes/edges through the existing collaborative flow API; the graph autosaves normally. Failure/recovery node states, queue annotations, and the playhead are viewer-local overlays and never change persisted node data. Edited/deleted scenario elements invalidate playback until the diagram is reloaded. Case-study values are illustrative annotations, not measured capacity or a production simulator.
 
 ## Invariants
 

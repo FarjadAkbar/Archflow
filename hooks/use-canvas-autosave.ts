@@ -1,6 +1,6 @@
 "use client"
 
-import type { OnEdgesChange, OnNodesChange } from "@xyflow/react"
+import type { OnDelete, OnEdgesChange, OnNodesChange } from "@xyflow/react"
 import { useCallback, useEffect, useRef } from "react"
 import { applyCanvasTemplate } from "@/components/editor/starter-templates"
 import type { CanvasEdge, CanvasFlowNode } from "@/types/canvas"
@@ -16,6 +16,7 @@ interface UseCanvasAutosaveOptions {
   edges: CanvasEdge[]
   onNodesChange: OnNodesChange<CanvasFlowNode>
   onEdgesChange: OnEdgesChange<CanvasEdge>
+  onDelete: OnDelete<CanvasFlowNode, CanvasEdge>
   isFlowReady?: boolean
   onStatusChange?: (status: CanvasSaveStatus) => void
   onSaveReady?: (saveNow: () => Promise<void>) => void
@@ -28,6 +29,7 @@ export function useCanvasAutosave({
   edges,
   onNodesChange,
   onEdgesChange,
+  onDelete,
   isFlowReady = true,
   onStatusChange,
   onSaveReady,
@@ -39,8 +41,10 @@ export function useCanvasAutosave({
   const nodesRef = useRef(nodes)
   const edgesRef = useRef(edges)
 
-  nodesRef.current = nodes
-  edgesRef.current = edges
+  useEffect(() => {
+    nodesRef.current = nodes
+    edgesRef.current = edges
+  }, [nodes, edges])
 
   const setStatus = useCallback(
     (status: CanvasSaveStatus) => {
@@ -132,7 +136,8 @@ export function useCanvasAutosave({
           nodesRef.current,
           edgesRef.current,
           onNodesChange,
-          onEdgesChange
+          onEdgesChange,
+          onDelete
         )
         skipNextSaveRef.current = true
         onCanvasRestored?.()
@@ -156,6 +161,7 @@ export function useCanvasAutosave({
     nodes,
     onCanvasRestored,
     onEdgesChange,
+    onDelete,
     onNodesChange,
     roomId,
   ])

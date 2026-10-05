@@ -1,12 +1,13 @@
 "use client"
 
-import type { OnEdgesChange, OnNodesChange } from "@xyflow/react"
+import type { OnDelete, OnEdgesChange, OnNodesChange } from "@xyflow/react"
 import {
   createContext,
   useCallback,
   useContext,
   type ReactNode,
 } from "react"
+import type { CanvasTextStyle } from "@/lib/canvas-text"
 import {
   CANVAS_EDGE_TYPE,
   CANVAS_GROUP_TYPE,
@@ -21,6 +22,7 @@ interface CanvasFlowContextValue {
   updateNodeLabel: (nodeId: string, label: string) => void
   updateNodeColor: (nodeId: string, color: string, textColor: string) => void
   updateEdgeLabel: (edgeId: string, label: string) => void
+  updateTextStyle: (nodeId: string, style: CanvasTextStyle) => void
   removeGroup: (groupId: string) => void
 }
 
@@ -31,6 +33,7 @@ interface CanvasFlowProviderProps {
   edges: CanvasEdge[]
   onNodesChange: OnNodesChange<CanvasFlowNode>
   onEdgesChange: OnEdgesChange<CanvasEdge>
+  onDelete: OnDelete<CanvasFlowNode, CanvasEdge>
   children: ReactNode
 }
 
@@ -39,6 +42,7 @@ export function CanvasFlowProvider({
   edges,
   onNodesChange,
   onEdgesChange,
+  onDelete,
   children,
 }: CanvasFlowProviderProps) {
   const updateNodeLabel = useCallback(
@@ -128,6 +132,7 @@ export function CanvasFlowProvider({
             ...edge,
             type: CANVAS_EDGE_TYPE,
             data: {
+              ...edge.data,
               label,
             },
           },
@@ -136,6 +141,12 @@ export function CanvasFlowProvider({
     },
     [edges, onEdgesChange]
   )
+
+  const updateTextStyle = useCallback((nodeId: string, style: CanvasTextStyle) => {
+    const node = nodes.find((entry) => entry.id === nodeId && entry.type === CANVAS_NODE_TYPE)
+    if (!node || node.type !== CANVAS_NODE_TYPE) return
+    onNodesChange([{ type: "replace", id: nodeId, item: { ...node, data: { ...node.data, textStyle: style } } }])
+  }, [nodes, onNodesChange])
 
   const removeGroup = useCallback(
     (groupId: string) => {
@@ -153,8 +164,8 @@ export function CanvasFlowProvider({
           id: child.id,
           item: {
             ...child,
-            parentId: undefined,
-            extent: undefined,
+            parentId: group.parentId,
+            extent: group.extent,
             position: {
               x: group.position.x + child.position.x,
               y: group.position.y + child.position.y,
@@ -162,17 +173,15 @@ export function CanvasFlowProvider({
           },
         }))
 
-      onNodesChange([
-        ...childUpdates,
-        { type: "remove", id: groupId },
-      ])
+      onNodesChange(childUpdates)
+      onDelete({ nodes: [group], edges: edges.filter(edge => edge.source === groupId || edge.target === groupId) })
     },
-    [nodes, onNodesChange]
+    [edges, nodes, onDelete, onNodesChange]
   )
 
   return (
     <CanvasFlowContext.Provider
-      value={{ updateNodeLabel, updateNodeColor, updateEdgeLabel, removeGroup }}
+      value={{ updateNodeLabel, updateNodeColor, updateEdgeLabel, updateTextStyle, removeGroup }}
     >
       {children}
     </CanvasFlowContext.Provider>

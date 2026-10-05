@@ -15,6 +15,9 @@ export const COMPONENT_KINDS = [
   "cdn",
   "firewall",
   "saas",
+  "ec2",
+  "s3",
+  "r2",
 ] as const
 
 export type ComponentKind = (typeof COMPONENT_KINDS)[number]
@@ -32,6 +35,9 @@ const COMPONENT_KIND_DEFINITIONS: Record<
   ComponentKind,
   Omit<ComponentKindDefinition, "id">
 > = {
+  ec2: { label: "AWS EC2", shape: "rectangle", colorIndex: 3, width: 144, height: 144 },
+  s3: { label: "Amazon S3", shape: "rectangle", colorIndex: 6, width: 144, height: 144 },
+  r2: { label: "Cloudflare R2", shape: "rectangle", colorIndex: 3, width: 144, height: 144 },
   client: {
     label: "Client",
     shape: "rectangle",

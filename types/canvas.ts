@@ -39,6 +39,7 @@ export interface CanvasNodeData extends Record<string, unknown> {
   textColor: string
   shape: CanvasNodeShape
   componentKind?: ComponentKind
+  textStyle?: "heading" | "paragraph"
 }
 
 export interface CanvasGroupData extends Record<string, unknown> {
@@ -49,6 +50,8 @@ export interface CanvasEdgeData extends Record<string, unknown> {
   label: string
   /** Travel hop order for Flow animation (1-based). */
   sequence?: number
+  /** Logical data relationship; excluded from runtime playback. */
+  relationship?: boolean
 }
 
 export type CanvasNode = Node<CanvasNodeData, typeof CANVAS_NODE_TYPE>
@@ -58,6 +61,7 @@ export type CanvasEdge = Edge<CanvasEdgeData, typeof CANVAS_EDGE_TYPE>
 
 export const CANVAS_SHAPE_DRAG_TYPE = "application/canvas-shape"
 export const CANVAS_GROUP_DRAG_TYPE = "application/canvas-group"
+export const CANVAS_TEXT_DRAG_TYPE = "application/canvas-text"
 
 export interface CanvasShapeDragPayload {
   shape: CanvasNodeShape

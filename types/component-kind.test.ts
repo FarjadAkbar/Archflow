@@ -6,7 +6,7 @@ import {
 } from "@/types/component-kind"
 
 describe("component kind catalog", () => {
-  it("exposes the v1 architecture component kinds", () => {
+  it("exposes the architecture component kinds including cloud services", () => {
     expect(COMPONENT_KINDS).toEqual([
       "client",
       "user",
@@ -22,6 +22,9 @@ describe("component kind catalog", () => {
       "cdn",
       "firewall",
       "saas",
+      "ec2",
+      "s3",
+      "r2",
     ])
   })
 

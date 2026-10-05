@@ -1,11 +1,11 @@
-import { Handle, Position } from "@xyflow/react"
+import { Handle, Position, useConnection } from "@xyflow/react"
 import { cn } from "@/lib/utils"
 
 const handleClassName = cn(
   "canvas-node-handle",
-  "!h-3.5 !w-3.5 !rounded-full !border-2 !border-border-default !bg-white",
-  "opacity-40 transition-opacity duration-150",
-  "group-hover/node:opacity-100 hover:!opacity-100 hover:!border-accent-ai hover:!bg-accent-ai"
+  "!h-3 !w-3 !rounded-full !border-2 !border-bg-base !bg-copy-primary !z-20",
+  "opacity-0 transition-opacity duration-150",
+  "group-hover/node:opacity-100 group-focus-within/node:opacity-100 hover:!opacity-100 hover:!bg-accent-ai"
 )
 
 const handlePositions = [
@@ -16,6 +16,8 @@ const handlePositions = [
 ] as const
 
 export function CanvasNodeHandles() {
+  const connecting = useConnection((connection) => connection.inProgress)
+  const visibleHandleClassName = cn(handleClassName, connecting && "!opacity-100")
   return (
     <>
       {handlePositions.map(({ position, id }) => (
@@ -24,7 +26,7 @@ export function CanvasNodeHandles() {
           id={id}
           type="source"
           position={position}
-          className={handleClassName}
+          className={visibleHandleClassName}
           isConnectable
         />
       ))}
@@ -34,7 +36,7 @@ export function CanvasNodeHandles() {
           id={`${id}-target`}
           type="target"
           position={position}
-          className={handleClassName}
+          className={visibleHandleClassName}
           isConnectable
         />
       ))}

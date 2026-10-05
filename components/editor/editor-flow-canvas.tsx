@@ -40,6 +40,11 @@ import {
   applyEnterDurationStyle,
 } from "@/hooks/use-apply-enter"
 import { FlowPlayProvider, useFlowPlay } from "@/hooks/use-flow-play"
+import { StoryPlaybackProvider } from "@/hooks/use-story-playback"
+import { CanvasSelectionActions } from "@/components/editor/canvas-selection-actions"
+import { StoryPanel } from "@/components/editor/story-panel"
+import { createTrafficStory } from "@/lib/traffic-story"
+import { createCanvasText, parseTextDragPayload } from "@/lib/canvas-text"
 import {
   useCanvasAutosave,
   type CanvasSaveStatus,
@@ -56,6 +61,7 @@ import {
   CANVAS_GROUP_TYPE,
   CANVAS_NODE_TYPE,
   CANVAS_SHAPE_DRAG_TYPE,
+  CANVAS_TEXT_DRAG_TYPE,
   DEFAULT_EDGE_COLOR,
   type CanvasEdge as CanvasEdgeType,
   type CanvasFlowNode,
@@ -92,6 +98,18 @@ function EditorFlowCanvasInner({
 
   const isFlowReady = useFlowStorageReady()
 
+  // Node movement does not change travel order. Keep playback inputs stable
+  // so dragging does not recalculate sequences or update playback context.
+  const flowEdges = useMemo(
+    () => edges.filter(edge => !edge.data?.relationship).map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sequence: edge.data?.sequence,
+    })),
+    [edges]
+  )
+
   const handleCanvasRestored = useCallback(() => {
     requestAnimationFrame(() => {
       void reactFlow.fitView({ duration: CANVAS_ZOOM_DURATION_MS, padding: 0.15 })
@@ -104,6 +122,7 @@ function EditorFlowCanvasInner({
     edges,
     onNodesChange,
     onEdgesChange,
+    onDelete,
     isFlowReady,
     onStatusChange: onSaveStatusChange,
     onSaveReady,
@@ -184,13 +203,13 @@ function EditorFlowCanvasInner({
         return
       }
 
-      applyCanvasTemplate(template, nodes, edges, onNodesChange, onEdgesChange)
+      applyCanvasTemplate(template, nodes, edges, onNodesChange, onEdgesChange, onDelete)
 
       requestAnimationFrame(() => {
         void reactFlow.fitView({ duration: CANVAS_ZOOM_DURATION_MS, padding: 0.15 })
       })
     },
-    [edges, isFlowReady, nodes, onEdgesChange, onNodesChange, reactFlow]
+    [edges, isFlowReady, nodes, onDelete, onEdgesChange, onNodesChange, reactFlow]
   )
 
   const handleDrop = useCallback(
@@ -207,6 +226,12 @@ function EditorFlowCanvasInner({
       })
 
       const groupRaw = event.dataTransfer.getData(CANVAS_GROUP_DRAG_TYPE)
+      const textRaw = event.dataTransfer.getData(CANVAS_TEXT_DRAG_TYPE)
+      if (textRaw) {
+        const style = parseTextDragPayload(textRaw)
+        if (style) onNodesChange([{ type: "add", item: createCanvasText(style, position) }])
+        return
+      }
       if (groupRaw) {
         const payload = parseGroupDragPayload(groupRaw)
         if (!payload) {
@@ -255,24 +280,34 @@ function EditorFlowCanvasInner({
     [isFlowReady, nodes, onNodesChange, reactFlow]
   )
 
+  const handleLoadCaseStudy = useCallback(() => {
+    if (!isFlowReady) return null
+    const bounds = nodes.length ? reactFlow.getNodesBounds(nodes) : null
+    const story = createTrafficStory({
+      x: bounds ? bounds.x + bounds.width + 300 : 100,
+      y: bounds ? bounds.y + 100 : 100,
+    })
+    onNodesChange(story.nodes.map((item) => ({ type: "add", item })))
+    onEdgesChange(story.edges.map((item) => ({ type: "add", item })))
+    requestAnimationFrame(() => {
+      void reactFlow.fitView({ nodes: story.nodes, duration: CANVAS_ZOOM_DURATION_MS, padding: 0.35 })
+    })
+    return story
+  }, [isFlowReady, nodes, onNodesChange, onEdgesChange, reactFlow])
+
   return (
     <CanvasFlowProvider
       nodes={nodes}
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onDelete={onDelete}
     >
-      <FlowPlayProvider
-        edges={edges.map((edge) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          sequence: edge.data?.sequence,
-        }))}
-      >
+      <FlowPlayProvider edges={flowEdges}>
+        <StoryPlaybackProvider nodes={nodes} edges={edges} onLoadCaseStudy={handleLoadCaseStudy}>
         <ApplyEnterProvider active={isAiApplyActive}>
           <div
-            className="relative h-[90vh] w-full"
+            className="relative h-full w-full"
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
@@ -287,7 +322,7 @@ function EditorFlowCanvasInner({
               onConnect={onConnect}
               onDelete={onDelete}
               connectionMode={ConnectionMode.Loose}
-              connectionLineType={ConnectionLineType.SmoothStep}
+              connectionLineType={ConnectionLineType.Bezier}
               connectionRadius={48}
               connectionLineStyle={{
                 stroke: "var(--color-accent-ai)",
@@ -301,7 +336,7 @@ function EditorFlowCanvasInner({
               selectionMode={SelectionMode.Partial}
               panOnDrag={[1, 2]}
               multiSelectionKeyCode="Shift"
-              deleteKeyCode={["Backspace", "Delete"]}
+              deleteKeyCode={null}
               className={cn(
                 "bg-bg-base",
                 isAiApplyActive && "canvas-apply-animating"
@@ -317,6 +352,8 @@ function EditorFlowCanvasInner({
               <Cursors components={cursorComponents} />
             </ReactFlow>
             <CanvasPresenceAvatars />
+            <StoryPanel />
+            <CanvasSelectionActions />
             <CanvasControlsWithPresent
               onZoomIn={handleZoomIn}
               onZoomOut={handleZoomOut}
@@ -326,7 +363,11 @@ function EditorFlowCanvasInner({
               canUndo={canUndo}
               canRedo={canRedo}
             />
-            <ShapePanel />
+            <ShapePanel onAddText={(style) => {
+              if (!isFlowReady) return
+              const position = reactFlow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+              onNodesChange([{ type: "add", item: createCanvasText(style, position) }])
+            }} />
             <StarterTemplatesModal
               open={templatesOpen}
               onOpenChange={onTemplatesOpenChange}
@@ -334,6 +375,7 @@ function EditorFlowCanvasInner({
             />
           </div>
         </ApplyEnterProvider>
+        </StoryPlaybackProvider>
       </FlowPlayProvider>
     </CanvasFlowProvider>
   )

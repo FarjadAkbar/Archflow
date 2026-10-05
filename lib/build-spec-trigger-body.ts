@@ -1,5 +1,6 @@
 import { isCanvasGroup } from "@/lib/canvas-group"
-import type { CanvasEdge, CanvasFlowNode } from "@/types/canvas"
+import { isTextNode } from "@/lib/canvas-text"
+import { CANVAS_NODE_TYPE, type CanvasNode, type CanvasEdge, type CanvasFlowNode } from "@/types/canvas"
 import type { SpecTriggerBody } from "@/types/spec-agent"
 import type { AiChatMessage } from "@/types/tasks"
 
@@ -15,11 +16,11 @@ export function buildSpecTriggerBody(
   input: BuildSpecTriggerBodyInput
 ): SpecTriggerBody {
   const groupIds = new Set(
-    input.nodes.filter(isCanvasGroup).map((node) => node.id)
+    input.nodes.filter((node) => isCanvasGroup(node) || isTextNode(node)).map((node) => node.id)
   )
 
   const nodes = input.nodes
-    .filter((node) => !isCanvasGroup(node))
+    .filter((node): node is CanvasNode => node.type === CANVAS_NODE_TYPE && !isTextNode(node))
     .map((node) => ({
       id: node.id,
       position: { x: node.position.x, y: node.position.y },

@@ -6,7 +6,7 @@ import {
   textColorForFill,
   type CanvasNodeShape,
 } from "@/types/canvas"
-import type { ComponentKind } from "@/types/component-kind"
+import { getComponentKindDefinition, isComponentKind, type ComponentKind } from "@/types/component-kind"
 
 interface CanvasNodeShapeViewProps {
   shape: CanvasNodeShape
@@ -61,36 +61,40 @@ function ArchitectureKindCard({
   label,
   selected,
   textColor,
+  fill,
   renderLabel,
 }: {
   kind: ComponentKind
   label: string
   selected: boolean
   textColor: string
+  fill: string
   renderLabel?: (textColor: string) => ReactNode
 }) {
   return (
     <div
-      className={cn(
-        "relative flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl border px-2 py-2",
-        selected
-          ? "border-brand bg-bg-elevated/90"
-          : "border-transparent bg-transparent"
-      )}
+      className="canvas-component-card relative flex h-full w-full flex-col items-center justify-center gap-1.5 rounded-2xl border px-2 py-2"
+      style={{
+        background: `linear-gradient(155deg, color-mix(in srgb, ${fill} 72%, var(--color-bg-elevated)), var(--color-bg-surface))`,
+        borderColor: selected ? "var(--color-brand)" : `color-mix(in srgb, ${textColor} 28%, var(--color-border-default))`,
+        boxShadow: selected ? "0 0 0 2px var(--color-brand-dim)" : undefined,
+      }}
     >
       <ArchitectureKindIcon kind={kind} withTile size="lg" />
-      <div className="relative min-h-5 w-full shrink-0">
+      <div className="relative min-h-6 w-full shrink-0">
         {renderLabel ? (
-          renderLabel(textColor)
+          renderLabel("var(--color-copy-primary)")
         ) : (
           <span
-            className="block truncate text-center text-xs font-medium"
-            style={{ color: textColor }}
+            className="block truncate text-center text-sm font-medium text-copy-primary"
           >
             {label || "\u00A0"}
           </span>
         )}
       </div>
+      <span className="pointer-events-none max-w-full truncate text-[9px] font-medium uppercase tracking-widest text-copy-muted">
+        {getComponentKindDefinition(kind).label}
+      </span>
     </div>
   )
 }
@@ -116,12 +120,15 @@ function CssShape({
     <div className="relative h-full w-full">
       <div
         className={cn(
-          "h-full w-full border-2",
-          shape === "rectangle" && "rounded-xl",
+          "h-full w-full border",
+          shape === "rectangle" && "rounded-2xl",
           shape === "pill" && "rounded-full",
           shape === "circle" && "rounded-full"
         )}
-        style={{ backgroundColor: fill, borderColor: border }}
+        style={{
+          background: `linear-gradient(145deg, ${fill}, color-mix(in srgb, ${fill} 65%, var(--color-bg-base)))`,
+          borderColor: selected ? border : `color-mix(in srgb, ${textColor} 32%, var(--color-border-default))`,
+        }}
       />
       <ShapeLabel label={label} textColor={textColor} renderLabel={renderLabel} />
     </div>
@@ -155,7 +162,8 @@ function DiamondShape({
           points="50,4 96,50 50,96 4,50"
           fill={fill}
           stroke={stroke}
-          strokeWidth="2"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
       </svg>
@@ -191,7 +199,8 @@ function HexagonShape({
           points="28,6 72,6 96,50 72,94 28,94 4,50"
           fill={fill}
           stroke={stroke}
-          strokeWidth="2"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
       </svg>
@@ -223,7 +232,13 @@ function CylinderShape({
         className="h-full w-full"
         aria-hidden
       >
-        <rect x="12" y="22" width="76" height="58" fill={fill} />
+        <path
+          d="M12 22v58c0 6 17 11 38 11s38-5 38-11V22"
+          fill={fill}
+          stroke={stroke}
+          strokeWidth="1.5"
+          vectorEffect="non-scaling-stroke"
+        />
         <ellipse
           cx="50"
           cy="22"
@@ -280,11 +295,12 @@ export function CanvasNodeShapeView({
 }: CanvasNodeShapeViewProps) {
   const textColor = textColorProp ?? textColorForFill(fill)
 
-  if (componentKind) {
+  if (componentKind && isComponentKind(componentKind)) {
     return (
       <div className={cn("relative h-full w-full", className)}>
         <ArchitectureKindCard
           kind={componentKind}
+          fill={fill}
           label={label}
           selected={selected}
           textColor={textColor}
@@ -295,7 +311,7 @@ export function CanvasNodeShapeView({
   }
 
   return (
-    <div className={cn("relative h-full w-full", className)}>
+    <div className={cn("canvas-geometric-shape relative h-full w-full", className)}>
       {shape === "rectangle" || shape === "pill" || shape === "circle" ? (
         <CssShape
           shape={shape}

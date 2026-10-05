@@ -43,6 +43,14 @@
   --color-state-success: #34d399;
   --color-state-warning: #fbbf24;
 
+  /* Restrained architecture accents */
+  --color-diagram-blue: #7db5f6;
+  --color-diagram-violet: #b3a0f5;
+  --color-diagram-amber: #edb96d;
+  --color-diagram-rose: #ec96b1;
+  --color-diagram-green: #8acba6;
+  --color-diagram-teal: #79cfc8;
+
   --radius: 0.75rem;
 
   --font-heading: var(--font-geist-sans);
@@ -162,6 +170,28 @@
 }
 
 /* Apply animation — Design plan enter + soft layout transitions */
+@keyframes story-travel {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+
+.story-traveler {
+  animation: story-travel 2600ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-traveler { animation: none; offset-distance: 50%; }
+}
+
+.canvas-component-card {
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-bg-base) 50%, transparent);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.canvas-geometric-shape {
+  filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--color-bg-base) 35%, transparent));
+}
+
 @keyframes canvas-apply-enter {
   from {
     opacity: 0;
@@ -191,10 +221,21 @@
     both;
 }
 
-.react-flow.canvas-apply-animating .react-flow__node {
+.react-flow.canvas-apply-animating .react-flow__node:not(.dragging) {
   transition:
     transform 220ms ease-out,
     width 220ms ease-out,
     height 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-apply-enter,
+  .canvas-apply-edge-enter {
+    animation: none;
+  }
+
+  .react-flow.canvas-apply-animating .react-flow__node {
+    transition: none;
+  }
 }
 

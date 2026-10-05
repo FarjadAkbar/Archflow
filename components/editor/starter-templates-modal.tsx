@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useId } from "react"
+import { getBezierPath, Position } from "@xyflow/react"
 import { DialogPattern } from "@/components/editor/dialog-pattern"
 import {
   CANVAS_TEMPLATES,
-  getNodeCenter,
+  getTemplateNodePosition,
   getNodeDimensions,
   getTemplateBounds,
   type CanvasTemplate,
@@ -16,7 +17,7 @@ import type {
   CanvasNode,
   CanvasNodeShape,
 } from "@/types/canvas"
-import { CANVAS_NODE_TYPE } from "@/types/canvas"
+import { CANVAS_GROUP_TYPE, CANVAS_NODE_TYPE } from "@/types/canvas"
 
 const PREVIEW_WIDTH = 280
 const PREVIEW_HEIGHT = 156
@@ -147,6 +148,17 @@ function TemplateDiagramPreview({
     PREVIEW_PADDING + (innerHeight - bounds.height * scale) / 2 - bounds.minY * scale
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const markerId = `preview-${useId().replace(/:/g, "")}`
+  const anchor = (node: CanvasFlowNode, handle: string | null | undefined) => {
+    const position = getTemplateNodePosition(node, nodes)
+    const size = getNodeDimensions(node)
+    const side = handle === "top" ? Position.Top : handle === "bottom" ? Position.Bottom : handle === "left" ? Position.Left : Position.Right
+    return {
+      x: (position.x + (side === Position.Left ? 0 : side === Position.Right ? size.width : size.width / 2)) * scale + offsetX,
+      y: (position.y + (side === Position.Top ? 0 : side === Position.Bottom ? size.height : size.height / 2)) * scale + offsetY,
+      side,
+    }
+  }
 
   return (
     <svg
@@ -154,6 +166,11 @@ function TemplateDiagramPreview({
       className="h-[156px] w-full rounded-xl border border-surface-border bg-bg-base"
       aria-hidden
     >
+      {nodes.filter((node) => node.type === CANVAS_GROUP_TYPE).map((node) => {
+        const position = getTemplateNodePosition(node, nodes)
+        const size = getNodeDimensions(node)
+        return <rect key={node.id} x={position.x * scale + offsetX} y={position.y * scale + offsetY} width={size.width * scale} height={size.height * scale} rx={5} fill="var(--color-bg-surface)" stroke="var(--color-border-default)" strokeWidth={0.6} />
+      })}
       {edges.map((edge) => {
         const source = nodeById.get(edge.source)
         const target = nodeById.get(edge.target)
@@ -161,19 +178,18 @@ function TemplateDiagramPreview({
           return null
         }
 
-        const sourceCenter = getNodeCenter(source)
-        const targetCenter = getNodeCenter(target)
+        const sourceAnchor = anchor(source, edge.sourceHandle)
+        const targetAnchor = anchor(target, edge.targetHandle)
+        const [path] = getBezierPath({ sourceX: sourceAnchor.x, sourceY: sourceAnchor.y, targetX: targetAnchor.x, targetY: targetAnchor.y, sourcePosition: sourceAnchor.side, targetPosition: targetAnchor.side })
 
         return (
-          <line
+          <path
             key={edge.id}
-            x1={sourceCenter.x * scale + offsetX}
-            y1={sourceCenter.y * scale + offsetY}
-            x2={targetCenter.x * scale + offsetX}
-            y2={targetCenter.y * scale + offsetY}
+            d={path}
+            fill="none"
             stroke="var(--color-border-subtle)"
-            strokeWidth={1.5}
-            markerEnd="url(#template-preview-arrow)"
+            strokeWidth={0.8}
+            markerEnd={`url(#${markerId})`}
           />
         )
       })}
@@ -184,13 +200,15 @@ function TemplateDiagramPreview({
         }
 
         const canvasNode = node as CanvasNode
+        if (canvasNode.data.textStyle) return null
         const { width, height } = getNodeDimensions(canvasNode)
+        const position = getTemplateNodePosition(canvasNode, nodes)
         return (
           <PreviewNodeShape
             key={canvasNode.id}
-            shape={canvasNode.data.shape}
-            x={canvasNode.position.x * scale + offsetX}
-            y={canvasNode.position.y * scale + offsetY}
+            shape={canvasNode.data.componentKind ? "rectangle" : canvasNode.data.shape}
+            x={position.x * scale + offsetX}
+            y={position.y * scale + offsetY}
             width={width * scale}
             height={height * scale}
             fill={canvasNode.data.color}
@@ -200,7 +218,7 @@ function TemplateDiagramPreview({
 
       <defs>
         <marker
-          id="template-preview-arrow"
+          id={markerId}
           markerWidth="8"
           markerHeight="8"
           refX="6"
